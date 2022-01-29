@@ -93,6 +93,37 @@ static void power_down(uint8_t wdto) {
 }
 #endif
 
+__attribute__((weak)) void matrix_power_up(void) {}
+__attribute__((weak)) void matrix_power_down(void) {}
+bool                       suspend_wakeup_condition(void) {
+    matrix_power_up();
+    matrix_scan();
+    matrix_power_down();
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        if (matrix_get_row(r)) return true;
+    }
+    return false;
+}
+
+// https://github.com/moroz-slavomir/qmk_firmware/commit/346a5e8d0e16dcb4257062ff159b92a3d1491a03
+#ifdef SPLIT_KEYBOARD
+ /*
+    Matrix scan sychnronizes slave with master for split keyboards.
+    Scan is invoked by keyboard_task() or suspend_wakeup_condition().
+        * Keyboard task is not invoked when suspended.
+        * Wake up check is not invoked when remote wake is not enabled.
+    This function forces master to slave sync by invoking matrix_scan().
+    Without it the slave would not receive data written by suspend_power_down().
+    E.g. rgb lights would't turn off on slave half.
+*/
+static void suspend_sync_slave(void) {
+    matrix_power_up();
+    matrix_scan();
+    matrix_power_down();
+    clear_keyboard();
+}
+#endif
+
 /** \brief Suspend power down
  *
  * FIXME: needs doc
@@ -106,6 +137,10 @@ void suspend_power_down(void) {
 #endif
 
     suspend_power_down_quantum();
+    // https://github.com/moroz-slavomir/qmk_firmware/commit/346a5e8d0e16dcb4257062ff159b92a3d1491a03
+#ifdef SPLIT_KEYBOARD
+    suspend_sync_slave();
+#endif
 
 #ifndef NO_SUSPEND_POWER_DOWN
     // Enter sleep state if possible (ie, the MCU has a watchdog timeout interrupt)
@@ -113,18 +148,6 @@ void suspend_power_down(void) {
     power_down(WDTO_15MS);
 #    endif
 #endif
-}
-
-__attribute__((weak)) void matrix_power_up(void) {}
-__attribute__((weak)) void matrix_power_down(void) {}
-bool                       suspend_wakeup_condition(void) {
-    matrix_power_up();
-    matrix_scan();
-    matrix_power_down();
-    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
-        if (matrix_get_row(r)) return true;
-    }
-    return false;
 }
 
 /** \brief run immediately after wakeup
